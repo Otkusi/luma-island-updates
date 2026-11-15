@@ -1,0 +1,52 @@
+name: Publish signed release
+on:
+  workflow_dispatch:
+    inputs:
+      staging_ref:
+        description: Temporary branch containing the signed package
+        required: true
+        type: string
+      version:
+        description: Numeric app version
+        required: true
+        type: string
+      zip_sha256:
+        description: Expected ZIP SHA-256
+        required: true
+        type: string
+permissions:
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.staging_ref }}
+      - name: Verify signature and package
+        env:
+          VERSION: ${{ inputs.version }}
+          ZIP_SHA256: ${{ inputs.zip_sha256 }}
+        run: |
+          node <<'JS'
+          const fs=require('fs'),crypto=require('crypto'),assert=require('assert/strict');
+          const version=process.env.VERSION;
+          assert.match(version,/^\d+\.\d+\.\d+$/);
+          assert.match(process.env.ZIP_SHA256,/^[a-f0-9]{64}$/);
+          const envelope=JSON.parse(fs.readFileSync('luma-update.json'));
+          const channel=JSON.parse(fs.readFileSync('update-channel.json'));
+          assert.ok(crypto.verify(null,Buffer.from(JSON.stringify(envelope.payload)),channel.publicKey,Buffer.from(envelope.signature,'base64')));
+          const data=fs.readFileSync('Luma-Island-Update-'+version+'.zip');
+          const hash=crypto.createHash('sha256').update(data).digest('hex');
+          assert.equal(hash,process.env.ZIP_SHA256);
+          assert.equal(hash,envelope.payload.download.sha256);
+          assert.equal(data.length,envelope.payload.download.size);
+          assert.equal(envelope.payload.version,version);
+          JS
+      - name: Upload verified files to the existing draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          test "$(gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = true
+          gh release upload "v$VERSION" "Luma-Island-Update-$VERSION.zip" luma-update.json --repo "$GITHUB_REPOSITORY" --clobber
