@@ -1,0 +1,71 @@
+name: Check released updater on Windows
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Published app version
+        required: true
+        default: '1.5.1'
+      electron_version:
+        description: Packaged Electron version
+        required: true
+        default: '42.11.18'
+      zip_sha256:
+        description: Expected signed ZIP digest
+        required: true
+        default: be2efbe577445c1de8ce8269dbcc261b7e0aa153a6d56199b8126f1f1b8f4466
+permissions:
+  contents: read
+jobs:
+  network:
+    runs-on: windows-latest
+    timeout-minutes: 8
+    env:
+      APP_VERSION: ${{ inputs.version }}
+      ELECTRON_VERSION: ${{ inputs.electron_version }}
+      ZIP_SHA256: ${{ inputs.zip_sha256 }}
+    steps:
+      - name: Download released files and official Electron runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:APP_VERSION -notmatch '^\d+\.\d+\.\d+$' -or $env:ELECTRON_VERSION -notmatch '^\d+\.\d+\.\d+$' -or $env:ZIP_SHA256 -notmatch '^[a-f0-9]{64}$'){throw 'Invalid input'}
+          $package="Luma-Island-Update-$env:APP_VERSION.zip"
+          Invoke-WebRequest "https://github.com/$env:GITHUB_REPOSITORY/releases/download/v$env:APP_VERSION/$package" -OutFile package.zip
+          if((Get-FileHash package.zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne $env:ZIP_SHA256){throw 'Package digest mismatch'}
+          Expand-Archive package.zip released
+          $runtime="electron-v$env:ELECTRON_VERSION-win32-x64.zip"
+          $base="https://github.com/electron/electron/releases/download/v$env:ELECTRON_VERSION"
+          Invoke-WebRequest "$base/$runtime" -OutFile runtime.zip
+          Invoke-WebRequest "$base/SHASUMS256.txt" -OutFile sums.txt
+          $expected=((Get-Content sums.txt | Where-Object {$_ -match ('\s+\*?'+[regex]::Escape($runtime)+'$')}) -split '\s+')[0]
+          if(-not $expected -or (Get-FileHash runtime.zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected.ToLowerInvariant()){throw 'Runtime digest mismatch'}
+          Expand-Archive runtime.zip runtime
+      - name: Exercise the exact released network code with normal Windows TLS
+        shell: pwsh
+        run: |
+          @'
+          const {app,net}=require('electron'),fs=require('fs'),path=require('path'),crypto=require('crypto'),assert=require('assert/strict');
+          const asar=path.resolve('released/update-payload/app.asar');
+          const {UpdateController,response}=require(asar+'/electron/updater.cjs');
+          const {createElectronUpdateFetch}=require(asar+'/electron/update-network.cjs');
+          const channel=require(asar+'/electron/update-channel.json');
+          const version=JSON.parse(fs.readFileSync(asar+'/package.json')).version;
+          const deadline=setTimeout(()=>app.exit(1),120000);
+          app.whenReady().then(async()=>{
+            assert.equal(process.platform,'win32');assert.equal(version,process.env.APP_VERSION);assert.equal(process.versions.electron,process.env.ELECTRON_VERSION);
+            const fetch=createElectronUpdateFetch(net);
+            const controller=new UpdateController({version,platform:'win32',userData:app.getPath('userData'),channel,fetch});
+            const state=await controller.check();assert.equal(state.status,'current',state.message);assert.equal(controller.release.version,version);
+            const release=controller.release,r=await response(fetch,release.download.url,new AbortController().signal),reader=r.body.getReader(),hash=crypto.createHash('sha256');let bytes=0;
+            for(;;){const part=await reader.read();if(part.done)break;bytes+=part.value.byteLength;assert.ok(bytes<=release.download.size);hash.update(part.value);}
+            assert.equal(bytes,release.download.size);assert.equal(hash.digest('hex'),release.download.sha256);
+            const report={result:'passed',platform:process.platform,electron:process.versions.electron,appVersion:version,checkStatus:state.status,bytes,scope:'Exact released ASAR network modules; anonymous live GitHub latest-feed and full ZIP; native Windows Electron TLS and redirect handling; Ed25519 and SHA-256; no OS update install/restart exercised.'};
+            fs.writeFileSync('windows-network.json',JSON.stringify(report,null,2));console.log(JSON.stringify(report));clearTimeout(deadline);app.exit(0);
+          }).catch(e=>{console.error(e);clearTimeout(deadline);app.exit(1);});
+          '@ | Set-Content check.cjs -Encoding utf8
+          $process=Start-Process -FilePath (Resolve-Path runtime/electron.exe) -ArgumentList @((Resolve-Path check.cjs).Path,'--disable-gpu') -Wait -PassThru -RedirectStandardOutput stdout.txt -RedirectStandardError stderr.txt
+          Get-Content stdout.txt
+          if($process.ExitCode -ne 0){Get-Content stderr.txt;throw "Electron exited $($process.ExitCode)"}
+          if(-not (Test-Path windows-network.json)){throw 'Missing verification report'}
+          Get-Content windows-network.json
