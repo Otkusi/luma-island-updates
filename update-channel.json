@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "repository": "Otkusi/luma-island-updates",
+  "feedUrl": "https://github.com/Otkusi/luma-island-updates/releases/latest/download/luma-update.json",
+  "publicKey": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA3xoCm/729/9EYR8EUbPCEWlFJd8bOCQnSCqM2Tz7/5k=\n-----END PUBLIC KEY-----\n"
+}

@@ -1,0 +1,21 @@
+{
+  "payload": {
+    "schema": 1,
+    "appId": "app.luma.island",
+    "platform": "win32-x64",
+    "packageType": "delta-folder-v1",
+    "version": "1.7.0",
+    "notes": "# Luma Island 1.7.0\n\nТри новые возможности для твоего острова. Их можно открыть прямо в привычных разделах приложения. Свой нынешний вид можно сохранить и вернуться к нему через профили оформления.\n\nВ версии 1.5.1 и новее открой «Настройки → Ещё → Обновления», нажми «Проверить обновления», затем «Установить 1.7.0 и перезапустить». Для версии 1.5.0 и более ранних подойдёт архив выпуска и установщик Install-Luma-NewFolder.cmd.\n",
+    "download": {
+      "url": "https://github.com/Otkusi/luma-island-updates/releases/download/v1.7.0/Luma-Island-Update-1.7.0.zip",
+      "size": 36871104,
+      "sha256": "6b648fde4e9097809010d96110991318c196456f5744b8b86868c534691050c9"
+    },
+    "target": {
+      "exeSha256": "6d7af9b732fa2e1290055ddee90eb43e49a23d5da2289705fd866d0c472203d2",
+      "asarSha256": "ff077499a01a21d98c309bb3360569b54c8d84fe2b1a4537981be40b33b7dbc4",
+      "nativeSha256": "7973b44ad2bd9cfa38ecc7a691e6fc35e6810859cec46db878de1196b712ab7b"
+    }
+  },
+  "signature": "YsWXg8eOL8ZpwGX8kW0tbkrPIR2963aQoz3DJiqqd5XdFRRJ0RKEW+3zs9Uy0zyN1BffivGDLdN8CXm8vwoYCg=="
+}

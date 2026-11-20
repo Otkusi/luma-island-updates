@@ -19,7 +19,7 @@ permissions:
 jobs:
   network:
     runs-on: windows-latest
-    timeout-minutes: 8
+    timeout-minutes: 14
     env:
       APP_VERSION: ${{ inputs.version }}
       ELECTRON_VERSION: ${{ inputs.electron_version }}
@@ -69,3 +69,22 @@ jobs:
           if($process.ExitCode -ne 0){Get-Content stderr.txt;throw "Electron exited $($process.ExitCode)"}
           if(-not (Test-Path windows-network.json)){throw 'Missing verification report'}
           Get-Content windows-network.json
+
+      - name: Load the isolated release checks
+        uses: actions/checkout@v4
+        with:
+          path: release-checks
+          sparse-checkout: qa
+          persist-credentials: false
+      - name: Exercise the in-app 1.6.0 upgrade and the new Windows UI
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $previous = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/v1.6.0/Luma-Island-Update-1.6.0.zip"
+          Invoke-WebRequest $previous -OutFile previous.zip
+          if ((Get-FileHash previous.zip).Hash.ToLowerInvariant() -ne '61be0ff4db0778ddd3b4ed441ba7fdc1b22d0f5a661234e981d4050a14a79f1b') { throw 'Previous package digest mismatch' }
+          Expand-Archive previous.zip previous-package
+          npm install --prefix release-checks/qa --ignore-scripts --no-audit --no-fund --no-package-lock playwright@1.65.0
+          if ($LASTEXITCODE -ne 0) { throw 'Test dependency unavailable' }
+          node release-checks/qa/upgrade.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Windows release exercise failed' }
