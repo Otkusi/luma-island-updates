@@ -3,6 +3,10 @@ const {spawn,spawnSync}=require('node:child_process'),{chromium}=require('playwr
 const here=__dirname, runtime=path.resolve('runtime'), payload=path.resolve('previous-package/update-payload');
 const profile=fs.mkdtempSync(path.join(os.tmpdir(),'luma-upgrade-'));
 const exe=path.join(runtime,'Luma Island.exe'),version=process.env.APP_VERSION;
+const desktopEnv={...process.env};
+// The GitHub runner's parent is PowerShell 7. An Explorer-launched desktop
+// application does not inherit that shell's PS7-only module search path.
+for(const key of Object.keys(desktopEnv))if(key.toLowerCase()==='psmodulepath')delete desktopEnv[key];
 const sha=buffer=>crypto.createHash('sha256').update(buffer).digest('hex');
 async function waitFor(read,limit) {
   const end=Date.now()+limit;
@@ -13,6 +17,10 @@ function json(file){try{return JSON.parse(fs.readFileSync(file,'utf8'));}catch{r
 let old,browser,healthyPid,releaseIssue='',oldStderr='';
 async function run(){
   assert.equal(process.platform,'win32');
+  const ps=path.join(process.env.SystemRoot,'System32/WindowsPowerShell/v1.0/powershell.exe');
+  const command="$ErrorActionPreference='Stop'; (Get-Command Get-FileHash).Source";
+  const check=spawnSync(ps,['-NoProfile','-NonInteractive','-Command',command],{env:desktopEnv,encoding:'utf8'});
+  assert.equal(check.status,0,check.stderr);console.log('Desktop PowerShell module',check.stdout.trim());
   const base=require('./baseline.json'), stock=fs.readFileSync(path.join(runtime,'electron.exe'));
   assert.equal(sha(stock),base.stock);
   for(const piece of base.patches)Buffer.from(piece.data,'base64').copy(stock,piece.offset);
@@ -27,7 +35,7 @@ async function run(){
   fs.writeFileSync(path.join(profile,'settings.json'),JSON.stringify({theme:'sage',updateCheckOnLaunch:false,hoverExpand:false,reducedMotion:true}));
   // A main-process Node inspector can keep Electron alive at app.quit().
   // Only attach to the renderer of an otherwise normal Windows launch.
-  old=spawn(exe,['--user-data-dir='+profile,'--disable-gpu','--remote-debugging-address=127.0.0.1','--remote-debugging-port='+port],{stdio:['ignore','ignore','pipe']});
+  old=spawn(exe,['--user-data-dir='+profile,'--disable-gpu','--remote-debugging-address=127.0.0.1','--remote-debugging-port='+port],{env:desktopEnv,stdio:['ignore','ignore','pipe']});
   old.stderr.on('data',data=>{oldStderr=(oldStderr+data.toString()).slice(-2000);});
   old.on('exit',(code,signal)=>console.log('Previous process exit',code,signal));
   const url='http://127.0.0.1:'+port;
@@ -80,7 +88,7 @@ async function run(){
   // starting the independent UI exercise with its own profile.
   process.kill(healthyPid);healthyPid=null;old=null;
   const result=spawnSync(process.execPath,[path.join(here,'electron.atelier.cjs')],{stdio:'inherit',env:{
-    ...process.env,LUMA_TEST_EXECUTABLE:handoff.active.exePath,LUMA_TEST_REPORT:path.resolve('ui-170.json'),
+    ...desktopEnv,LUMA_TEST_EXECUTABLE:handoff.active.exePath,LUMA_TEST_REPORT:path.resolve('ui-170.json'),
   }});
   assert.equal(result.status,0);assert.equal(json('ui-170.json').result,'passed');
   console.log(JSON.stringify({result:'passed',sourceVersion:'1.6.0',version,platform:process.platform,
